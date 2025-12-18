@@ -1,33 +1,46 @@
+#---------
+
+#---------
+
+# GROWTH
+
+#---------
+
+#---------
+
 getwd()
 setwd("/Users/pesaari/Documents/PhD/R/Growth")
 library(dplyr)
 
 # Bring data in
-data <- read.csv("dry_weight_plot_numbers_corrected.csv", stringsAsFactors = FALSE)
+data <- read.csv("data/growth.csv", stringsAsFactors = FALSE)
 
-# Luo uusi sarake 'tile', joka yhdistää SITE.ID ja original.tile.number
+# Create new column 'tile', that combines SITE.ID and original.tile.number
 data$tile <- paste(data$SITE.ID, data$Original.tile.number, sep = "_")
 
-# Remove broken tips
-  # SH2M: paino pienentynyt ja pala puuttuu -> poista taulukosta
-  # OK3O: selkeästi puuttuu pala -> poista taulukosta
+# Remove broken tips (SH2M & OK3O)
 data <- data[!data$Fucus.ID.key %in% c("SH2M", "OK3O"), ]
 
+data$Genotype.origin <- factor(data$Genotype.origin)
+data$I.or.C <- factor(data$I.or.C)
+data$Genotype <- factor(data$Genotype)
 
 #-----------
 
 # BIOMASS
 
-#----------
+#-----------
 
 ######
 
-# vaikuttaako genotype origin alkubiomassaan (että kyse ei välttämättä ole kasvun eroissa vaan lähtötilanteen erossa)
+# DIFFERENCES IN ORIGINAL BIOMASS
+  # Does genotype origin affect biomass in June?  
+  # Test if results tell about difference in starting biomass or differences in growth
 
 ######
 
 library(glmmTMB)
-m_start_mass2 <- glmmTMB(
+m1 <- glmmTMB(
   Tip.dry.weight.June.ww_dw_ratio..g. ~ 
     Genotype.origin + 
     (1|SITE.ID) + 
@@ -36,32 +49,30 @@ m_start_mass2 <- glmmTMB(
   data=data,
   family=gaussian)
 
-summary(m_start_mass2)
+summary(m1)
+# Tips collected from impact areas are 0.125 g smaller on average compared to tips from control areas in June
+# The difference is highly significant
 
 library(emmeans)
-emmeans(m_start_mass2, ~ Genotype.origin, type="response") # Piirrä tästä kuva kun mallin sopivuus on testattu
-
-# Impact-genotyyppien alkukoko kesäkuussa on keskimäärin 0.125 g pienempi
-# kuin Control-genotyyppien
-# Ero on erittäin merkitsevä
+emmeans(m1, ~ Genotype.origin, type="response")
 # 95 % CI (emmeans):
 # Control: 0.307–0.385 g
 # Impact: 0.182–0.260 g
-# → ei päällekkäisyyttä
+# → no overlap
 
-# ei voi käyttää change muuttujaa eli kasvun määrää vaan pitää huomioida alkupaino
-# mutta haittaako se koska impactilta kerätyt laitettiin sekä impactille että controllille? -> ei minusta
-
-#######
-
-# Mallit
+# Since the initial weight varies between the origin areas, growth change cannot be used in the models
+# The initial weight must therefore be accounted for in the models
 
 #######
 
-# Miten tipin kuiva massa heinäkuussa riippuu alkukoosta kesäkuussa, alueen impact-statuksesta ja genotyypin alkuperästä?
+# MODELS
 
-# 1. 
-m_biomass_2 <- glmmTMB(
+#######
+
+# How does the tip dry mass in July depend on the initial size in June, the area's impact status, and the origin of the genotype?
+
+# 1. model
+m2 <- glmmTMB(
   Tip.dry.weight.July..g. ~ 
     Tip.dry.weight.June.ww_dw_ratio..g. + 
     I.or.C + 
@@ -75,8 +86,8 @@ m_biomass_2 <- glmmTMB(
   data=data, 
   family=gaussian)
 
-# 2. USE THIS
-m_biomass_test_yhdysvaikutus_puuttuu <- glmmTMB(
+# 2. model -> USE THIS
+m3 <- glmmTMB(
   Tip.dry.weight.July..g. ~ 
     Tip.dry.weight.June.ww_dw_ratio..g. + 
     I.or.C + 
@@ -89,8 +100,8 @@ m_biomass_test_yhdysvaikutus_puuttuu <- glmmTMB(
   data=data, 
   family=gaussian)
 
-#3. 
-m_biomass_test_yhdysvaikutus_ja_geno_puuttuu <- glmmTMB(
+# 3. model
+m4 <- glmmTMB(
   Tip.dry.weight.July..g. ~ 
     Tip.dry.weight.June.ww_dw_ratio..g. + 
     I.or.C + 
@@ -102,18 +113,24 @@ m_biomass_test_yhdysvaikutus_ja_geno_puuttuu <- glmmTMB(
   data=data, 
   family=gaussian)
 
-summary(m_biomass_2)
-summary(m_biomass_test_yhdysvaikutus_puuttuu) # paras AIC, ei ylisovittava, sama johtopäätös kuin täydessä mallissa
-summary(m_biomass_test_yhdysvaikutus_ja_geno_puuttuu) #kaikista huonoin ehkä
+summary(m2)
+summary(m3) # best AIC, no overfitting, same results as in full model
+summary(m4) # probably the worst model
 
-# Kasvu riippuu erittäin voimakkaasti lähtökoosta
-# Impact-yksilöiden kasvu lisääntyy hitaammin lähtökoon kasvaessa ja vaikutus on tilastollisesti lähes merkitsevä
+
 # I or C Ei eroa July biomassissa, kun June biomass on sama, käsittelyn päävaikutusta ei ole
 # Geneettinen alkuperä ei selitä kasvua, kun lähtökoko huomioidaan
 # Ei näyttöä geneettisen alkuperän ja käsittelyn yhteisvaikutuksesta kasvussa
 # viitteitä siitä, että Impact-alueilla kasvu skaalautuu hieman heikommin lähtökoon kanssa
 
-emmeans(m_biomass_test_yhdysvaikutus_puuttuu, ~ I.or.C, type="response") # Piirrä tästä kuva kun mallin sopivuus on testattu
+# 1. Growth depends very strongly on initial size
+# 2. In Impact areas, tips with larger initial dry weight in June tended to grow slightly less by July compared to those in Control areas
+    # almost statistically significant (0.0505)
+# 3. No difference between I and C in July biomass when June biomass is the same; no main effect of treatment
+# 4. Whether a genotype was collected near or far from a shipping lane did not significantly affect tip growth once initial size and site treatment were accounted for.
+# 5. There is no evidence that the effect of genotype origin differs between areas.
+
+emmeans(m3, ~ I.or.C, type="response") # Piirrä tästä kuva kun mallin sopivuus on testattu
 # interaktiodien takia tulokset voi olla misleading
 
 ######
@@ -122,14 +139,14 @@ emmeans(m_biomass_test_yhdysvaikutus_puuttuu, ~ I.or.C, type="response") # Piirr
 
 ######
 
-pearson_resid_1 <- residuals(m_biomass_test_yhdysvaikutus_puuttuu, type = "pearson")
-plot(pearson_resid_2)
-hist(pearson_resid_2)
+pearson_resid <- residuals(m3, type = "pearson")
+plot(pearson_resid)
+hist(pearson_resid)
 
 library(DHARMa)
-resid1 <- simulateResiduals(m_biomass_2, n=1000)
-resid2<- simulateResiduals(m_biomass_test_yhdysvaikutus_puuttuu, n=1000)
-resid3 <- simulateResiduals(m_biomass_test_yhdysvaikutus_ja_geno_puuttuu, n=1000)
+resid1 <- simulateResiduals(m2, n=1000)
+resid2<- simulateResiduals(m3, n=1000)
+resid3 <- simulateResiduals(m4, n=1000)
 
 plot(resid1)
 # KS p: 0.00376
@@ -144,12 +161,9 @@ plot(resid3)
 # Dispersion p: 0.986
 # Outlier p: 6e-04
 
-
-
-
 # Trendit mallista
 emtr <- emtrends(
-  m_biomass_test_yhdysvaikutus_puuttuu,
+  m3,
   ~ I.or.C,
   var = "Tip.dry.weight.June.ww_dw_ratio..g."
 )
@@ -184,7 +198,7 @@ data$Genotype.origin <- factor(data$Genotype.origin, levels = c("Control", "Impa
 
 # Marginaaliset ennusteet pelkälle treatmentille (I.or.C)
 pred_treatment <- ggpredict(
-  m_biomass_test_yhdysvaikutus_puuttuu,
+  m3,
   terms = c("I.or.C")
 )
 
@@ -197,7 +211,7 @@ pred_treatment_df$group <- factor(pred_treatment_df$x, levels = c("Control", "Im
 ggplot(pred_treatment_df, aes(x = group, y = predicted, fill = group)) +
   geom_col(width = 0.5, color = "black", alpha=0.5) +
   geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
-  scale_fill_manual(values = c("Control" = "blue", "Impact" = "red"), guide = "none") +  # legendan poisto
+  scale_fill_manual(values = c("Control" = "#00BFC4", "Impact" = "#F8766D"), guide = "none") +  # legendan poisto
   labs(
     x = "",
     y = "Predicted tip dry biomass in July (g)",
@@ -258,12 +272,12 @@ ggplot() +
   # Värit viivoille ja pisteille
   scale_color_manual(
     name = "Predicted biomass",
-    values = c("Control" = "blue", "Impact" = "red")
+    values = c("Control" = "#00BFC4", "Impact" = "#F8766D")
   ) +
   
   # Täytöt ribbonille
   scale_fill_manual(
-    values = c("Control" = "blue", "Impact" = "red")
+    values = c("Control" = "#00BFC4", "Impact" = "#F8766D")
   ) +
   
   # Pisteiden legenda
@@ -281,7 +295,7 @@ ggplot() +
     shape = guide_legend(
       order = 2,
       override.aes = list(
-        color = c("blue", "red")
+        color = c("#00BFC4", "#F8766D")
       )
     )
   ) +
@@ -304,13 +318,134 @@ ggplot() +
 # Genotyyppivaihtelu - pylväs
 
 ######
+
+mean_June <- mean(data$Tip.dry.weight.June.ww_dw_ratio..g., na.rm = TRUE)
+
+newdata3 <- expand.grid(
+  Genotype = levels(data$Genotype),
+  I.or.C = levels(data$I.or.C),
+  Genotype.origin = levels(data$Genotype.origin)[1],  # referenssitaso
+  Tip.dry.weight.June.ww_dw_ratio..g. = mean_June
+)
+
+newdata3$predicted <- predict(
+  m3,
+  newdata = newdata3,
+  re.form = NA
+)
+
+
+
+library(ggplot2)
+
+# Piirretään pylväät
+ggplot(newdata3, aes(x = Genotype, y = predicted, fill = I.or.C)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, color = "black", alpha = 0.7) +
+  labs(
+    x = "Genotype",
+    y = "Predicted tip dry mass in July (g)",
+    fill = "Treatment"
+  ) +
+  theme_bw(base_size = 14)
+
+# Halutessasi voit lisätä myös alkuperäiset datapisteet päälle
+ggplot(newdata, aes(x = Genotype, y = predicted, fill = I.or.C)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, color = "black", alpha = 0.7) +
+  geom_jitter(data = data,
+              aes(x = Genotype, y = Tip.dry.weight.July..g., color = I.or.C),
+              width = 0.2, size = 1.5, alpha = 0.7,
+              inherit.aes = FALSE) +
+  labs(
+    x = "Genotype",
+    y = "Predicted tip dry mass in July (g)",
+    fill = "Treatment",
+    color = "Treatment"
+  ) +
+  theme_bw(base_size = 14)
+
+
+
+
+
+library(ggeffects)
+library(ggplot2)
+
+data$Genotype <- factor(data$Genotype)
+data$I.or.C <- factor(data$I.or.C)
+# Ennusteet Genotype ja käsittely (I.or.C) mukaan
+pred_genotype_treatment <- ggpredict(
+  m3,
+  terms = c("Genotype", "I.or.C"),
+  type = "fixed"  # ei huomioida satunnaistekijät
+)
+
+# Muutetaan data.frameksi ggplotille
+pred_df <- as.data.frame(pred_genotype_treatment)
+
+# Piirretään pylväskaavio käsittelyllä värikoodattuna
+ggplot(pred_df, aes(x = x, y = predicted, fill = group)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, color = "black", alpha = 0.7) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                position = position_dodge(width = 0.8), width = 0.2) +
+  labs(
+    x = "Genotype",
+    y = "Predicted tip biomass in July (g)",
+    fill = "Treatment"
+  ) +
+  theme_bw(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5))
+
+
+
+
+ggplot() +
+  # pylväät ennusteista
+  geom_col(data = pred_df,
+           aes(x = x, y = predicted, fill = group),
+           position = position_dodge(width = 0.8),
+           width = 0.7, color = "black", alpha = 0.7) +
+  geom_errorbar(data = pred_df,
+                aes(x = x, ymin = conf.low, ymax = conf.high, fill = group),
+                position = position_dodge(width = 0.8),
+                width = 0.2) +
+  # alkuperäiset datapisteet
+  geom_jitter(data = data,
+              aes(x = Genotype, y = Tip.dry.weight.July..g., color = I.or.C),
+              width = 0.2, size = 1.5, alpha = 0.7,
+              inherit.aes = FALSE) +
+  labs(x = "Genotype", y = "Tip dry mass in July (g)", fill = "Treatment", color = "Treatment") +
+  theme_bw(base_size = 14)
+
+
+
+
+library(dplyr)
+
+summary_df <- data %>%
+  group_by(Genotype, I.or.C) %>%
+  summarise(
+    mean_July = mean(Tip.dry.weight.July..g.),
+    sd_July = sd(Tip.dry.weight.July..g.),
+    n = n(),
+    se = sd_July / sqrt(n)
+  )
+
+ggplot(summary_df, aes(x = Genotype, y = mean_July, fill = I.or.C)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, color = "black") +
+  geom_errorbar(aes(ymin = mean_July - se, ymax = mean_July + se),
+                position = position_dodge(width = 0.8), width = 0.2) +
+  labs(x = "Genotype", y = "Mean tip dry mass in July (g)", fill = "Treatment") +
+  theme_bw(base_size = 14)
+
+
+
 library(ggeffects)
 library(ggplot2)
 
 data$Genotype <- factor(data$Genotype)
 
 # sovita malli uudelleen
-m_biomass_test_yhdysvaikutus_puuttuu <- glmmTMB(
+m3 <- glmmTMB(
   Tip.dry.weight.July..g. ~ 
     Tip.dry.weight.June.ww_dw_ratio..g. + 
     I.or.C + 
@@ -325,7 +460,7 @@ m_biomass_test_yhdysvaikutus_puuttuu <- glmmTMB(
 
 # Ennusteet Genotype-satunnaistekijän mukaan
 pred_genotype <- ggpredict(
-  m_biomass_test_yhdysvaikutus_puuttuu,
+  m3,
   terms = c("Genotype"),
   type = "random"# huomioidaan satunnaistekijät
 )
@@ -355,7 +490,7 @@ library(ggeffects)
 
 # Ennustetaan genotyyppikohtaiset arvot huomioiden mallin satunnaistekijät
 pred_genotype <- ggpredict(
-  m_biomass_test_yhdysvaikutus_puuttuu,
+  m3,
   terms = c("Tip.dry.weight.June.ww_dw_ratio..g.", "Genotype"),
   type = "random"  # huomioidaan satunnaistekijät
 )
