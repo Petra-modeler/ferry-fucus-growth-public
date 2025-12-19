@@ -13,7 +13,7 @@ setwd("/Users/pesaari/Documents/PhD/R/Growth")
 library(dplyr)
 
 # Bring data in
-data <- read.csv("data/growth.csv", stringsAsFactors = FALSE)
+data <- read.csv("private/data/growth.csv", stringsAsFactors = FALSE)
 
 # Create new column 'tile', that combines SITE.ID and original.tile.number
 data$tile <- paste(data$SITE.ID, data$Original.tile.number, sep = "_")
@@ -437,6 +437,20 @@ summary(m7)
 summary(test)
 # no difference to previous models
 
+
+pearson_resid_m6 <- residuals(m6, type = "pearson")
+plot(pearson_resid_m6)
+hist(pearson_resid_m6)
+
+library(DHARMa)
+resid_m6 <- simulateResiduals(m6, n=1000)
+
+plot(resid_m6) # -> good fit
+# KS p: 0.97265
+# Dispersion p: 0.786
+# Outlier p: 1
+
+
 # Check effect of random variables
 m8 <- glmmTMB(
   Change.tip.length.tot..cm. ~ 
@@ -483,11 +497,296 @@ anova(m10, m7)
 
 #-----------
 
-# TIPSIEN MÄÄRÄ
+# IMPACTS MEASURED AS NUMBER OF TIPS
 
 #-----------
+# Bring data in
+data <- read.csv("private/data/growth.csv", stringsAsFactors = FALSE)
+data_june <- read.csv("private/data/data_june.csv", stringsAsFactors = FALSE)
 
-# testaa vaikuttaako genotype origin tipsien määrään
+colnames(data)[colnames(data) == "Apikal.tips..amount."] <- "Apikal_tips_amount_July"
 
+# Create new column 'tile', that combines SITE.ID and original.tile.number
+data$tile <- paste(data$SITE.ID, data$Original.tile.number, sep = "_")
+
+# Remove broken tips (SH2M & OK3O)
+data <- data[!data$Fucus.ID.key %in% c("SH2M", "OK3O"), ]
+
+# Combine June tip count to dataframe
+data <- data %>%
+  left_join(
+    data_june %>% select(site_tile_genotype, apical_tip_number_June),
+    by = c("Fucus.ID.key" = "site_tile_genotype")
+  )
+
+data$Genotype.origin <- factor(data$Genotype.origin)
+data$I.or.C <- factor(data$I.or.C)
+data$Genotype <- factor(data$Genotype)
+
+# Check the distribution
+hist(data$apical_tip_number_June)
+
+# Does genotype origin affect tip count in June? 
+
+# Poisson
+m11 <- glmmTMB(
+  apical_tip_number_June ~ 
+    Genotype.origin + 
+    (1|SITE.ID) + 
+    (1|tile) + 
+    (1|Genotype), 
+  data=data,
+  family=poisson)
+
+# Negative binomial 1
+m12 <- glmmTMB(
+  apical_tip_number_June ~ 
+    Genotype.origin + 
+    (1|SITE.ID) + 
+    (1|tile) + 
+    (1|Genotype), 
+  data=data,
+  family=nbinom1)
+
+# Negative binomial 2
+m13 <- glmmTMB(
+  apical_tip_number_June ~ 
+    Genotype.origin + 
+    (1|SITE.ID) + 
+    (1|tile) + 
+    (1|Genotype), 
+  data=data,
+  family=nbinom2)
+
+
+summary(m11)
+summary(m12)
+summary(m13)
+# Negbin1 best and genotype origin doesn't have impact on apical tip number in June
+# I could model change in apical tip count or do as previously and use July number as response variable
+
+########
+
+# MODELS
+
+########
+
+m14 <- glmmTMB(
+  Apikal_tips_amount_July ~ 
+    apical_tip_number_June + 
+    I.or.C + 
+    Genotype.origin + 
+    I.or.C:Genotype.origin + 
+    apical_tip_number_June:I.or.C + 
+    (1|SITE.ID) + 
+    (1|tile) + 
+    (1|Genotype),
+  data=data, 
+  family=nbinom1)
+
+m15 <- glmmTMB(
+  Apikal_tips_amount_July ~ 
+    apical_tip_number_June + 
+    I.or.C + 
+    Genotype.origin + 
+    I.or.C:Genotype.origin + 
+    apical_tip_number_June:I.or.C + 
+    (1|SITE.ID) + 
+    (1|tile) + 
+    (1|Genotype),
+  data=data, 
+  family=nbinom2)
+
+m16 <- glmmTMB(
+  Apikal_tips_amount_July ~ 
+    apical_tip_number_June + 
+    I.or.C + 
+    Genotype.origin + 
+    I.or.C:Genotype.origin + 
+    apical_tip_number_June:I.or.C + 
+    (1|SITE.ID) + 
+    (1|tile) + 
+    (1|Genotype),
+  data=data, 
+  family=poisson)
+
+summary(m14)
+summary(m15)
+summary(m16)
+
+anova(m14, m15)
+# nbinom1 (m14) and nbinom2 (m15) fit the data similarly, with slightly lower AIC for nbinom2
+# extremely high dispersion estimate in nbinom2 (111) is unrealistic, while nbinom1 provides a reasonable estimate
+# nbinom1 is the best
+# tip count in June is the only one explaining variation in fixed terms
+
+anova(m14, m16)
+# both models fit the data similarly
+
+
+pearson_resid_m14 <- residuals(m14, type = "pearson")
+pearson_resid_m16 <- residuals(m16, type = "pearson")
+plot(pearson_resid_m14)
+plot(pearson_resid_m16)
+hist(pearson_resid_m14)
+hist(pearson_resid_m16)
+
+library(DHARMa)
+resid_m14 <- simulateResiduals(m14, n=1000)
+resid_m16<- simulateResiduals(m16, n=1000)
+
+plot(resid_m14)
+# KS p: 0.2469
+# Dispersion p: 0.968
+# Outlier p: 0.28
+plot(resid_m16)
+# KS p:0.40255
+# Dispersion p: 0.888
+# Outlier p: 0.42
+
+# model assumptions are reasonably met in both models
+# both have good fit
+
+#######
+
+# RANDOM TERMS
+
+######
+
+summary(m16)$varcor
+
+
+#######
+
+# CHANGE IN TIP COUNT
+
+######
+
+# Test model with change in tip count as response variable
+data$change_in_tip_number <- data$Apikal_tips_amount_July - data$apical_tip_number_June
+
+hist(data$change_in_tip_number)
+
+m17 <- glmmTMB(
+  change_in_tip_number ~ 
+    apical_tip_number_June + 
+    I.or.C + 
+    Genotype.origin + 
+    I.or.C:Genotype.origin + 
+    apical_tip_number_June:I.or.C + 
+    (1|SITE.ID) + 
+    (1|tile) + 
+    (1|Genotype),
+  data=data, 
+  family=nbinom2)
+
+m18 <- glmmTMB(
+  change_in_tip_number ~ 
+    apical_tip_number_June + 
+    I.or.C + 
+    Genotype.origin + 
+    I.or.C:Genotype.origin + 
+    apical_tip_number_June:I.or.C + 
+    (1|SITE.ID) + 
+    (1|tile) + 
+    (1|Genotype),
+  data=data, 
+  family=nbinom1)
+
+m19 <- glmmTMB(
+  change_in_tip_number ~ 
+    apical_tip_number_June + 
+    I.or.C + 
+    Genotype.origin + 
+    I.or.C:Genotype.origin + 
+    apical_tip_number_June:I.or.C + 
+    (1|SITE.ID) + 
+    (1|tile) + 
+    (1|Genotype),
+  data=data, 
+  family=poisson)
+
+m20 <- glmmTMB(
+  change_in_tip_number ~ 
+    apical_tip_number_June + 
+    I.or.C + 
+    Genotype.origin + 
+    I.or.C:Genotype.origin + 
+    apical_tip_number_June:I.or.C + 
+    (1|SITE.ID) + 
+    (1|tile) + 
+    (1|Genotype),
+  data=data, 
+  family=gaussian)
+
+summary(m20)
+pearson_resid_m20 <- residuals(m20, type = "pearson")
+
+plot(pearson_resid_m20)
+
+hist(pearson_resid_m20)
+
+
+library(DHARMa)
+resid_m20 <- simulateResiduals(m20, n=1000)
+
+
+plot(resid_m20)
+# KS p: 0.0284
+# Dispersion p: 0.848
+# Outlier p: 7e-05
+
+#######
+
+# ONLY POSITIVE CHANGE
+
+######
+
+# There is many observations where change was negative, which is not biologically reasonable
+data_positive <- data[data$change_in_tip_number >= 0, ]
+hist(data_positive$change_in_tip_number)
+
+m21 <- glmmTMB(
+  change_in_tip_number ~ 
+    apical_tip_number_June + 
+    I.or.C + 
+    Genotype.origin + 
+    I.or.C:Genotype.origin + 
+    apical_tip_number_June:I.or.C + 
+    (1|SITE.ID) + 
+    (1|tile) + 
+    (1|Genotype),
+  data=data_positive, 
+  family=nbinom2)
+
+m22 <- glmmTMB(
+  change_in_tip_number ~ 
+    apical_tip_number_June + 
+    I.or.C + 
+    Genotype.origin + 
+    I.or.C:Genotype.origin + 
+    apical_tip_number_June:I.or.C + 
+    (1|SITE.ID) + 
+    (1|tile) + 
+    (1|Genotype),
+  data=data_positive, 
+  family=nbinom1)
+
+m23 <- glmmTMB(
+  change_in_tip_number ~ 
+    apical_tip_number_June + 
+    I.or.C + 
+    Genotype.origin + 
+    I.or.C:Genotype.origin + 
+    apical_tip_number_June:I.or.C + 
+    (1|SITE.ID) + 
+    (1|tile) + 
+    (1|Genotype),
+  data=data_positive, 
+  family=poisson)
+
+summary(m21)
+summary(m22)
+summary(m23)
 
 # ALL PREVIOUS IN DISTANCE FROM FAIRWAY AND WITH WAVES
